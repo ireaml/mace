@@ -213,8 +213,11 @@ def config_from_atoms(
     if "occupancies" in atoms.arrays:
         element_occupancies = [
             {
-                sym: float(frac)
-                for sym, frac in (pair.split(":") for pair in s.strip("{}").split(","))
+                sym.strip(): float(frac)
+                for sym, frac in (
+                    pair.split(":")
+                    for pair in (s.decode() if isinstance(s, bytes) else s).strip("{}").split(",")
+                )
             }
             for s in atoms.arrays["occupancies"]
         ]

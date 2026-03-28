@@ -8,6 +8,7 @@ import logging
 from contextlib import contextmanager
 from typing import Dict, Union
 
+import ase.data
 import numpy as np
 import torch
 from e3nn.io import CartesianTensor
@@ -41,8 +42,6 @@ def occupancies_to_node_attrs(
     Ordered site   {"Fe": 1.0}          -> one-hot at Fe position
     Disordered site {"Fe": 0.5, "Ni": 0.5} -> [0,...,0.5,...,0.5,...,0]
     """
-    import ase.data
-
     n_nodes = len(occupancies)
     n_elements = len(z_table)
     node_attrs = torch.zeros(n_nodes, n_elements, dtype=torch.get_default_dtype())
