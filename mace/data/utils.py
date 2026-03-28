@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import ase
 import ase.data
 import ase.io
 import h5py
@@ -234,6 +235,41 @@ def config_from_atoms(
         cell=cell,
         element_occupancies=element_occupancies,
     )
+
+
+def structure_to_atoms_with_occupancies(structure) -> ase.Atoms:
+    """Convert a pymatgen Structure (ordered or disordered) to ASE Atoms.
+
+    For disordered structures, adds an 'occupancies' string array column using
+    the {Fe:0.5,Ni:0.5} format. For ordered structures returns a plain ASE
+    Atoms object with no occupancies column.
+
+    Oxidation states are removed before conversion so species keys are plain
+    element symbols (e.g. 'Ba', not 'Ba2+').
+    """
+    structure = structure.remove_oxidation_states()
+    positions = structure.cart_coords
+    cell = np.array(structure.lattice.matrix)
+    pbc = [True, True, True]
+
+    is_disordered = not structure.is_ordered
+    dominant_symbols = []
+    occ_strings = []
+
+    for site in structure.sites:
+        species_dict = site.species.as_dict()  # plain symbols after remove_oxidation_states
+        dominant = max(species_dict, key=species_dict.get)
+        dominant_symbols.append(dominant)
+        if is_disordered:
+            occ_strings.append(
+                "{" + ",".join(f"{sp}:{frac}" for sp, frac in species_dict.items()) + "}"
+            )
+
+    atomic_numbers = [ase.data.atomic_numbers[s] for s in dominant_symbols]
+    atoms = ase.Atoms(numbers=atomic_numbers, positions=positions, cell=cell, pbc=pbc)
+    if is_disordered:
+        atoms.arrays["occupancies"] = np.array(occ_strings)
+    return atoms
 
 
 def test_config_types(
