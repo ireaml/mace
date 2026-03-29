@@ -9,6 +9,8 @@ import glob
 import json
 import logging
 import os
+
+import ase.data
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional
@@ -423,7 +425,12 @@ def run(args) -> None:
                 z
                 for configs in (head_config.collections.train, head_config.collections.valid)
                 for config in configs
-                for z in config.atomic_numbers
+                for z in (
+                    # Disordered: collect all species from occupancy dicts (includes minority occupants)
+                    (ase.data.atomic_numbers[sym] for occ in config.element_occupancies for sym in occ)
+                    if config.element_occupancies is not None
+                    else config.atomic_numbers
+                )
             )
             head_config.atomic_numbers = z_table_head.zs
             head_config.z_table = z_table_head
