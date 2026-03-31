@@ -1,0 +1,27 @@
+# Build artefacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Large model binaries
+*.model
+*.pt
+*.pth
+
+# Packaging
+MANIFEST.in
+setup.cfg
+pyproject.toml
+ruff.toml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Misc
+.DS_Store
+*.log
