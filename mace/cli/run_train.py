@@ -836,9 +836,27 @@ def run(args) -> None:
 
         model = inject_LoRAs(model, rank=lora_rank, alpha=lora_alpha)
 
+        # Unfreeze readout head fully — it is randomly initialised for the new
+        # task and should not be constrained to near-zero LoRA adapters.
+        readout_unfrozen = 0
+        for name, p in model.named_parameters():
+            if "readouts" in name:
+                p.requires_grad_(True)
+                readout_unfrozen += p.numel()
         logging.info(
-            "Model with LoRA has %s trainable parameters.",
-            tools.count_parameters(model),
+            "Readout head unfrozen: %s additional trainable parameters.", readout_unfrozen
+        )
+
+        lora_params = sum(
+            p.numel() for name, p in model.named_parameters()
+            if p.requires_grad and "readouts" not in name
+        )
+        logging.info(
+            "LoRA adapter parameters (backbone only): %s trainable.", lora_params
+        )
+        logging.info(
+            "Total trainable parameters: %s.",
+            sum(p.numel() for p in model.parameters() if p.requires_grad),
         )
 
     logging.info("===========OPTIMIZER INFORMATION===========")
