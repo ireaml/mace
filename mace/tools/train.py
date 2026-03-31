@@ -345,7 +345,7 @@ def train(
             torch.distributed.barrier()
         if exit_now is not None:
             torch.distributed.broadcast(exit_now, src=0)
-            if exit_now == 1:
+            if exit_now.item() == 1:
                 break
 
         epoch += 1
