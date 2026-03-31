@@ -10,7 +10,7 @@ import logging
 import os
 from glob import glob
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
@@ -670,3 +670,93 @@ class MACECalculator(Calculator):
         if self.num_models == 1:
             return descriptors[0]
         return descriptors
+
+
+class ScalarPropertyMACECalculator(MACECalculator):
+    """ASE Calculator for ScalarPropertyMACE models (e.g. bandgap predictor).
+
+    Wraps a multi-head ScalarPropertyMACE model trained with --model ScalarPropertyMACE.
+    Results are stored in ``atoms.calc.results[property_key]`` (default: ``"bandgap"``).
+
+    Usage::
+
+        calc = ScalarPropertyMACECalculator(
+            "checkpoints/mace_bandgap_4head_foundation.model",
+            head="icsd",       # which fidelity head to use for predictions
+            device="cuda",
+        )
+        atoms.calc = calc
+        bandgap = atoms.calc.get_property("bandgap", atoms)
+
+        # Batch inference:
+        bandgaps = calc.predict(atoms_list)
+    """
+
+    def __init__(
+        self,
+        model_paths: Union[list, str],
+        head: Optional[str] = None,
+        device: str = "cpu",
+        default_dtype: str = "float32",
+        **kwargs,
+    ):
+        # Bypass model_type validation by passing "MACE"; we override calculate() below.
+        super().__init__(
+            model_paths=model_paths,
+            device=device,
+            default_dtype=default_dtype,
+            model_type="MACE",
+            head=head,
+            **kwargs,
+        )
+        self.property_key = self.models[0].property_key
+        # Replace energy/force implemented_properties with the scalar property.
+        self.implemented_properties = [self.property_key]
+
+    def calculate(self, atoms=None, properties=None, system_changes=all_changes):
+        Calculator.calculate(self, atoms)
+
+        batch = self._atoms_to_batch(atoms)
+        model_dtype = next(self.models[0].parameters()).dtype
+        for key in batch.keys:
+            value = batch[key]
+            if torch.is_tensor(value) and torch.is_floating_point(value):
+                batch[key] = value.to(dtype=model_dtype)
+
+        with torch.no_grad():
+            out = self.models[0](batch.to_dict())
+
+        self.results[self.property_key] = float(out[self.property_key].item())
+
+    def predict(self, atoms_list: list) -> list:
+        """Run batch inference; returns list of predicted property values (float)."""
+        configs = [
+            mace_data.config_from_atoms(atoms, head_name=self.head)
+            for atoms in atoms_list
+        ]
+        loader = torch_geometric.dataloader.DataLoader(
+            dataset=[
+                mace_data.AtomicData.from_config(
+                    cfg,
+                    z_table=self.z_table,
+                    cutoff=self.r_max,
+                    heads=self.available_heads,
+                )
+                for cfg in configs
+            ],
+            batch_size=64,
+            shuffle=False,
+            drop_last=False,
+        )
+        results = []
+        model_dtype = next(self.models[0].parameters()).dtype
+        with torch.no_grad():
+            for batch in loader:
+                batch = batch.to(self.device)
+                for key in batch.keys:
+                    value = batch[key]
+                    if torch.is_tensor(value) and torch.is_floating_point(value):
+                        batch[key] = value.to(dtype=model_dtype)
+                out = self.models[0](batch.to_dict())
+                results.extend(out[self.property_key].cpu().tolist())
+        return results
