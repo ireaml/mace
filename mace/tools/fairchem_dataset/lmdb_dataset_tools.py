@@ -180,12 +180,12 @@ class BaseDataset(ABC):
             for field in metadata_npzs[0]
         }
 
-        assert np.issubdtype(
-            metadata["natoms"].dtype, np.integer
-        ), f"Metadata natoms must be an integer type! not {metadata['natoms'].dtype}"
-        assert metadata["natoms"].shape[0] == len(
-            self
-        ), "Loaded metadata and dataset size mismatch."
+        assert np.issubdtype(metadata["natoms"].dtype, np.integer), (
+            f"Metadata natoms must be an integer type! not {metadata['natoms'].dtype}"
+        )
+        assert metadata["natoms"].shape[0] == len(self), (
+            "Loaded metadata and dataset size mismatch."
+        )
 
         return metadata
 
@@ -309,7 +309,6 @@ class LMDBDatabase(ase.db.core.Database):
         data: dict | None,
         id: int | None = None,  # pylint: disable=redefined-builtin
     ) -> None:
-
         # 1) dump the entire atoms.info dict into key_value_pairs
         key_value_pairs = dict(key_value_pairs or {}, **atoms.info)
         scalar_types = (numbers.Real, str, bool, np.bool_)
@@ -871,7 +870,7 @@ class AseDBDataset(AseAtomsDataset):
         elif os.path.isfile(config["src"]):
             filepaths = [config["src"]]
         elif os.path.isdir(config["src"]):
-            filepaths = sorted(glob(f'{config["src"]}/*'))
+            filepaths = sorted(glob(f"{config['src']}/*"))
         else:
             filepaths = sorted(glob(config["src"]))
 

@@ -201,7 +201,6 @@ def transfer_weights(
 
 
 def run(input_model, output_model="_e3nn.model", device="cpu", return_model=True):
-
     # Load CuEq model
     if isinstance(input_model, str):
         source_model = torch.load(input_model, map_location=device)

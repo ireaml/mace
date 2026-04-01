@@ -529,9 +529,7 @@ class DipoleSingleLoss(torch.nn.Module):
 class DipolePolarLoss(torch.nn.Module):
     def __init__(
         self, dipole_weight=1.0, polarizability_weight=1.0
-    ) -> (
-        None
-    ):  # dipole_mean=None,dipole_std=None,polarizability_mean=None,polarizability_std=None
+    ) -> None:  # dipole_mean=None,dipole_std=None,polarizability_mean=None,polarizability_std=None
         super().__init__()
         self.register_buffer(
             "dipole_weight",
@@ -623,3 +621,31 @@ class WeightedEnergyForcesL1L2Loss(torch.nn.Module):
             f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f}, "
             f"forces_weight={self.forces_weight:.3f})"
         )
+
+
+class WeightedPropertyLoss(torch.nn.Module):
+    """MSE loss for a scalar global property (e.g. bandgap).
+
+    Reads ``ref[property_key]`` and ``pred[property_key]``, weighted by
+    ``ref.weight`` when present.
+    """
+
+    def __init__(self, property_key: str = "bandgap") -> None:
+        super().__init__()
+        self.property_key = property_key
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        pred_val = pred[self.property_key]
+        ref_val = ref[self.property_key]
+        weight = (
+            ref.weight
+            if hasattr(ref, "weight") and ref.weight is not None
+            else torch.ones_like(ref_val)
+        )
+        raw_loss = weight * torch.square(ref_val - pred_val)
+        return reduce_loss(raw_loss, ddp)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(property_key={self.property_key})"

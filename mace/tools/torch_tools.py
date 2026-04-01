@@ -33,7 +33,7 @@ def to_one_hot(indices: torch.Tensor, num_classes: int) -> torch.Tensor:
 
 
 def count_parameters(module: torch.nn.Module) -> int:
-    return int(sum(np.prod(p.shape) for p in module.parameters()))
+    return int(sum(np.prod(p.shape) for p in module.parameters() if p.requires_grad))
 
 
 def tensor_dict_to_device(td: TensorDict, device: torch.device) -> TensorDict:

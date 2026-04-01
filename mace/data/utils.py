@@ -60,13 +60,20 @@ def update_keyspec_from_kwargs(
         "total_charge_key",
         "polarizability_key",
         "total_spin_key",
+        "property_key",
     ]
     arrays = ["forces_key", "charges_key"]
     info_keys = {}
     arrays_keys = {}
     for key in infos:
         if key in keydict:
-            info_keys[key[:-4]] = keydict[key]
+            if key == "property_key":
+                # Use the value as both internal name and atoms.info key so that
+                # AtomicData["bandgap"] matches model output and loss lookup.
+                prop_name = keydict[key]
+                info_keys[prop_name] = prop_name
+            else:
+                info_keys[key[:-4]] = keydict[key]
     for key in arrays:
         if key in keydict:
             arrays_keys[key[:-4]] = keydict[key]
@@ -294,8 +301,17 @@ def load_from_xyz(
     has_energy = any(final_energy_key in atoms.info for atoms in atoms_list)
     has_forces = any(final_forces_key in atoms.arrays for atoms in atoms_list)
     has_dipole = any(final_dipole_key in atoms.info for atoms in atoms_list)
+    # Allow datasets that only contain a custom scalar property (e.g. bandgap)
+    has_custom_property = (
+        any(
+            any(v in atoms.info for v in key_specification.info_keys.values())
+            for atoms in atoms_list
+        )
+        if not (has_energy or has_forces or has_dipole)
+        else True
+    )
 
-    if not has_energy and not has_forces and not has_dipole:
+    if not has_energy and not has_forces and not has_dipole and not has_custom_property:
         msg = f"None of '{final_energy_key}', '{final_forces_key}', and '{final_dipole_key}' found in '{file_path}'."
         if no_data_ok:
             logging.warning(msg + " Continuing because no_data_ok=True was passed in.")

@@ -107,6 +107,12 @@ def create_error_table(
             "RMSE MU / mDebye / atom",
             "rel MU RMSE %",
         ]
+    elif table_type == "PropertyRMSE":
+        table.field_names = [
+            "config_type",
+            "RMSE / eV",
+            "MAE / eV",
+        ]
 
     for name in sorted(all_data_loaders, key=custom_key):
         if any(skip_head in name for skip_head in skip_heads):
@@ -128,8 +134,7 @@ def create_error_table(
         torch.cuda.empty_cache()
         if log_wandb:
             wandb_log_dict = {
-                name
-                + "_final_rmse_e_per_atom": metrics["rmse_e_per_atom"]
+                name + "_final_rmse_e_per_atom": metrics["rmse_e_per_atom"]
                 * 1e3,  # meV / atom
                 name + "_final_rmse_f": metrics["rmse_f"] * 1e3,  # meV / A
                 name + "_final_rel_rmse_f": metrics["rel_rmse_f"],
@@ -257,6 +262,14 @@ def create_error_table(
                     f"{metrics['rel_rmse_f']:8.1f}",
                     f"{metrics['rmse_mu_per_atom'] * 1000:8.1f}",
                     f"{metrics['rel_rmse_mu']:8.1f}",
+                ]
+            )
+        elif table_type == "PropertyRMSE":
+            table.add_row(
+                [
+                    name,
+                    f"{metrics['rmse_prop']:8.4f}",
+                    f"{metrics['mae_prop']:8.4f}",
                 ]
             )
     return table

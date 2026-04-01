@@ -115,12 +115,8 @@ class PotentialEmbeddingBlock(torch.nn.Module):
 
 
 @compile_mode("script")
-class AgnosticChargeBiasedLinearPotentialEmbedding(
-    PotentialEmbeddingBlock
-):  # pylint: disable=arguments-differ
-    def _setup(
-        self, charges_irreps: o3.Irreps
-    ) -> None:  # pylint: disable=arguments-differ
+class AgnosticChargeBiasedLinearPotentialEmbedding(PotentialEmbeddingBlock):  # pylint: disable=arguments-differ
+    def _setup(self, charges_irreps: o3.Irreps) -> None:  # pylint: disable=arguments-differ
         self.potential_linear = o3.Linear(
             irreps_in=self.potential_irreps,
             irreps_out=self.node_feats_irreps,
@@ -301,6 +297,8 @@ class SparseUvuTensorProduct(torch.nn.Module):
     - `l x 0 -> l` (scalar modulation)
     """
 
+    _path_meta: List[Tuple[int, int, int, int, int, int, int, int, float, int, int, int, int]]
+
     def __init__(
         self,
         irreps_in1: o3.Irreps,
@@ -349,9 +347,7 @@ class SparseUvuTensorProduct(torch.nn.Module):
         in1_slices = self.irreps_in1.slices()
         in2_slices = self.irreps_in2.slices()
         out_slices = self.irreps_out.slices()
-        self._path_meta: List[
-            Tuple[int, int, int, int, int, int, int, int, float, int, int, int, int]
-        ] = []
+        self._path_meta = []
         w_offset = 0
         for ins in self.instructions:
             if ins.connection_mode != "uvu":

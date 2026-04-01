@@ -237,7 +237,6 @@ class Contraction(torch.nn.Module):
             self.weights_max = weights[-1]
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
-
         out = self.graph_opt_main(
             self.U_tensors(self.correlation),
             self.weights_max,
@@ -266,8 +265,6 @@ class EmptyParam(torch.nn.Parameter):
         zero = torch.zeros_like(data)
         return super().__new__(cls, zero, requires_grad=False)
 
-    def requires_grad_(
-        self, mode: bool = True
-    ):  # pylint: disable=arguments-differ, arguments-renamed
+    def requires_grad_(self, mode: bool = True):  # pylint: disable=arguments-differ, arguments-renamed
         del mode
         return self

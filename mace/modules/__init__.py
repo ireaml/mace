@@ -6,6 +6,7 @@ from .blocks import (
     AtomicEnergiesBlock,
     EquivariantProductBasisBlock,
     GeneralNonLinearBiasReadoutBlock,
+    GlobalPropertyReadoutBlock,
     InteractionBlock,
     LinearDipolePolarReadoutBlock,
     LinearDipoleReadoutBlock,
@@ -36,6 +37,7 @@ from .loss import (
     WeightedEnergyForcesVirialsLoss,
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
+    WeightedPropertyLoss,
 )
 from .models import (
     MACE,
@@ -43,6 +45,7 @@ from .models import (
     AtomicDipolesMACE,
     EnergyDipolesMACE,
     ScaleShiftMACE,
+    ScalarPropertyMACE,
 )
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
@@ -107,10 +110,12 @@ __all__ = [
     "GaussianBasis",
     "MACE",
     "ScaleShiftMACE",
+    "ScalarPropertyMACE",
     "AtomicDipolesMACE",
     "AtomicDielectricMACE",
     "EnergyDipolesMACE",
     "PolarMACE",
+    "GlobalPropertyReadoutBlock",
     "WeightedEnergyForcesLoss",
     "WeightedForcesLoss",
     "WeightedEnergyForcesVirialsLoss",
@@ -120,6 +125,7 @@ __all__ = [
     "WeightedHuberEnergyForcesStressLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",
+    "WeightedPropertyLoss",
     "SymmetricContraction",
     "interaction_classes",
     "compute_mean_std_atomic_inter_energy",

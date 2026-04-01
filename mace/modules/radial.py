@@ -345,7 +345,6 @@ class SoftTransform(torch.nn.Module):
         edge_index: torch.Tensor,
         atomic_numbers: torch.Tensor,
     ) -> torch.Tensor:
-
         r_0 = self.compute_r_0(node_attrs, edge_index, atomic_numbers)
         p_0 = (3 / 4) * r_0
         p_1 = (4 / 3) * r_0

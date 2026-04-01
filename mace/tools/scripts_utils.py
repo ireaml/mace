@@ -124,7 +124,7 @@ def get_dataset_from_xyz(
                 atomic_energies_values[element].append(energy)
                 atomic_energies_counts[element] += 1
 
-        log_dataset_contents(train_configs, f"Training set {i+1}/{len(train_paths)}")
+        log_dataset_contents(train_configs, f"Training set {i + 1}/{len(train_paths)}")
 
     # Log total training set info
     log_dataset_contents(all_train_configs, "Total Training set")
@@ -141,7 +141,7 @@ def get_dataset_from_xyz(
             )
             all_valid_configs.extend(valid_configs)
             log_dataset_contents(
-                valid_configs, f"Validation set {i+1}/{len(valid_paths)}"
+                valid_configs, f"Validation set {i + 1}/{len(valid_paths)}"
             )
 
         # Log total validation set info
@@ -169,7 +169,7 @@ def get_dataset_from_xyz(
             )
             all_test_configs.extend(test_configs)
 
-            log_dataset_contents(test_configs, f"Test set {i+1}/{len(test_paths)}")
+            log_dataset_contents(test_configs, f"Test set {i + 1}/{len(test_paths)}")
 
         # Create list of tuples (config_type, list(Atoms))
         test_configs_by_type = data.test_config_types(all_test_configs)
@@ -699,9 +699,9 @@ def get_loss_fn(
             forces_weight=args.forces_weight,
         )
     elif args.loss == "dipole":
-        assert (
-            dipole_only is True
-        ), "dipole loss can only be used with AtomicDipolesMACE model"
+        assert dipole_only is True, (
+            "dipole loss can only be used with AtomicDipolesMACE model"
+        )
         loss_fn = modules.DipoleSingleLoss(
             dipole_weight=args.dipole_weight,
         )
@@ -716,6 +716,10 @@ def get_loss_fn(
             energy_weight=args.energy_weight,
             forces_weight=args.forces_weight,
             dipole_weight=args.dipole_weight,
+        )
+    elif args.loss == "bandgap":
+        loss_fn = modules.WeightedPropertyLoss(
+            property_key=getattr(args, "property_key", "property")
         )
     else:
         loss_fn = modules.WeightedEnergyForcesLoss(energy_weight=1.0, forces_weight=1.0)
@@ -881,6 +885,15 @@ def get_params_options(
         amsgrad=args.amsgrad,
         betas=(args.beta, 0.999),
     )
+    if hasattr(model, "property_readout") and model.property_readout is not None:
+        param_options["params"].append(
+            {
+                "name": "property_readout",
+                "params": model.property_readout.parameters(),
+                "weight_decay": 0.0,
+                "lr": lr_params_factors.get("readouts_lr_factor", 1.0) * args.lr,
+            }
+        )
     if hasattr(model, "joint_embedding") and model.joint_embedding is not None:
         param_options["params"].append(
             {

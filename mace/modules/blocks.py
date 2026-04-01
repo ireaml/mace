@@ -22,7 +22,7 @@ from mace.modules.wrapper_ops import (
     TransposeIrrepsLayoutWrapper,
 )
 from mace.tools.compile import simplify_if_compile
-from mace.tools.scatter import scatter_sum
+from mace.tools.scatter import scatter_mean, scatter_sum
 from mace.tools.utils import LAMMPS_MP
 
 from .irreps_tools import mask_head, reshape_irreps, tp_out_irreps_with_instructions
@@ -112,6 +112,49 @@ class NonLinearReadoutBlock(torch.nn.Module):
             if self.num_heads > 1 and heads is not None:
                 x = mask_head(x, heads, self.num_heads)
         return self.linear_2(x)  # [n_nodes, len(heads)]
+
+
+class GlobalPropertyReadoutBlock(torch.nn.Module):
+    """Reads out a scalar global property per graph via mean pooling + MLP.
+
+    Supports multiple heads (e.g. different levels of theory) via head masking.
+    """
+
+    def __init__(
+        self,
+        irreps_in: o3.Irreps,
+        MLP_irreps: o3.Irreps,
+        gate: Optional[Callable],
+        num_heads: int = 1,
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        hidden_irreps = (num_heads * MLP_irreps).simplify()
+        self.linear_1 = Linear(irreps_in=irreps_in, irreps_out=hidden_irreps)
+        self.non_linearity = simplify_if_compile(nn.Activation)(
+            irreps_in=hidden_irreps, acts=[gate]
+        )
+        self.linear_2 = Linear(
+            irreps_in=hidden_irreps,
+            irreps_out=o3.Irreps(f"{num_heads}x0e"),
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,  # [n_nodes, irreps_dim]
+        batch: torch.Tensor,  # [n_nodes] graph index per node
+        num_graphs: int,
+        graph_heads: Optional[torch.Tensor] = None,  # [n_graphs] head index per graph
+    ) -> torch.Tensor:  # [n_graphs, num_heads]
+        x_graph = scatter_mean(
+            x, batch, dim=0, dim_size=num_graphs
+        )  # [n_graphs, irreps_dim]
+        x_graph = self.non_linearity(
+            self.linear_1(x_graph)
+        )  # [n_graphs, num_heads * hidden]
+        if self.num_heads > 1 and graph_heads is not None:
+            x_graph = mask_head(x_graph, graph_heads, self.num_heads)
+        return self.linear_2(x_graph)  # [n_graphs, num_heads]
 
 
 @simplify_if_compile
@@ -394,7 +437,8 @@ class AtomicEnergiesBlock(torch.nn.Module):
         )  # [n_elements, n_heads]
 
     def forward(
-        self, x: torch.Tensor  # one-hot of elements [..., n_elements]
+        self,
+        x: torch.Tensor,  # one-hot of elements [..., n_elements]
     ) -> torch.Tensor:  # [..., ]
         energies = torch.atleast_2d(self.atomic_energies).T.to(
             dtype=x.dtype, device=x.device

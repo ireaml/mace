@@ -144,6 +144,12 @@ def valid_err_log(
         logging.info(
             f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, RMSE_E_per_atom={error_e:8.2f} meV, RMSE_F={error_f:8.2f} meV / A, RMSE_Mu_per_atom={error_mu:8.2f} mDebye",
         )
+    elif log_errors == "PropertyRMSE":
+        prop_key = eval_metrics.get("property_key", "property")
+        error_prop = eval_metrics["rmse_prop"]
+        logging.info(
+            f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, RMSE_{prop_key}={error_prop:8.4f} eV",
+        )
 
 
 def train(
@@ -310,6 +316,8 @@ def train(
                             )
                             if exit_now is not None:
                                 exit_now.fill_(1)
+                            else:
+                                break
                     if save_all_checkpoints:
                         param_context = (
                             ema.average_parameters()
@@ -562,7 +570,6 @@ def evaluate(
     output_args: Dict[str, bool],
     device: torch.device,
 ) -> Tuple[float, Dict[str, Any]]:
-
     metrics = MACELoss(loss_fn=loss_fn).to(device)
 
     start_time = time.time()
@@ -590,8 +597,13 @@ class MACELoss(Metric):
     def __init__(self, loss_fn: torch.nn.Module):
         super().__init__()
         self.loss_fn = loss_fn
+        self.property_key = getattr(loss_fn, "property_key", None)
         self.add_state("total_loss", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("num_data", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state(
+            "Props_computed", default=torch.tensor(0.0), dist_reduce_fx="sum"
+        )
+        self.add_state("delta_props", default=[], dist_reduce_fx="cat")
         self.add_state("E_computed", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("delta_es", default=[], dist_reduce_fx="cat")
         self.add_state("delta_es_per_atom", default=[], dist_reduce_fx="cat")
@@ -688,6 +700,12 @@ class MACELoss(Metric):
                 batch.polarizability_weight,
                 spread_quantity_vector=False,
             )
+        if self.property_key is not None:
+            prop_pred = output.get(self.property_key)
+            prop_ref = getattr(batch, self.property_key, None)
+            if prop_pred is not None and prop_ref is not None:
+                self.delta_props.append(prop_ref - prop_pred)
+                self.Props_computed += batch.num_graphs
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         if isinstance(delta, list):
@@ -695,7 +713,6 @@ class MACELoss(Metric):
         return to_numpy(delta)
 
     def compute(self):
-
         class NoneMultiply:
             def __mul__(self, other):
                 return NoneMultiply()
@@ -764,5 +781,10 @@ class MACELoss(Metric):
                 delta_polarizability_per_atom
             )
             aux["q95_polarizability"] = compute_q95(delta_polarizability)
+        if self.property_key is not None and self.Props_computed:
+            delta_props = self.convert(self.delta_props)
+            aux["property_key"] = self.property_key
+            aux["rmse_prop"] = compute_rmse(delta_props)
+            aux["mae_prop"] = compute_mae(delta_props)
 
         return aux["loss"], aux

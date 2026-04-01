@@ -125,6 +125,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "DipoleMAE",
             "DipolePolarRMSE",
             "EnergyDipoleRMSE",
+            "PropertyRMSE",
         ],
         default="PerAtomRMSE",
     )
@@ -138,6 +139,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "BOTNet",
             "MACE",
             "ScaleShiftMACE",
+            "ScalarPropertyMACE",
             "PolarMACE",
             "MACELES",
             "ScaleShiftBOTNet",
@@ -145,6 +147,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "AtomicDielectricMACE",
             "EnergyDipolesMACE",
         ],
+    )
+    parser.add_argument(
+        "--freeze_backbone",
+        help="freeze all backbone parameters (interactions, products, embeddings), training only the readout head(s); intended for use with --foundation_model and ScalarPropertyMACE",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--r_max", help="distance cutoff (in Ang)", type=float, default=5.0
@@ -718,6 +726,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         default=DefaultKeys.TOTAL_CHARGE.value,
     )
     parser.add_argument(
+        "--property_key",
+        help="Key of scalar global property (e.g. bandgap) in training xyz; used with ScalarPropertyMACE",
+        type=str,
+        default=DefaultKeys.PROPERTY.value,
+    )
+    parser.add_argument(
         "--embedding_specs",
         help=(
             "Dict of feature‐spec dictionaries. "
@@ -764,6 +778,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "universal",
             "energy_forces_dipole",
             "l1l2energyforces",
+            "bandgap",
         ],
     )
     parser.add_argument(

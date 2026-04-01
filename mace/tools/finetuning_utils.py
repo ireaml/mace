@@ -170,13 +170,13 @@ def load_foundations_elements(
                 indices_weights_prod = [0]
         max_range = max_L + 1 if i < len(model.products) - 1 else 1
         for j in range(max_range):  # Assuming 3 contractions in symmetric_contractions
-            product.symmetric_contractions.contractions[j].weights_max = (
-                torch.nn.Parameter(
-                    model_foundations.products[i]
-                    .symmetric_contractions.contractions[j]
-                    .weights_max[indices_weights_prod, :, :]
-                    .clone()
-                )
+            product.symmetric_contractions.contractions[
+                j
+            ].weights_max = torch.nn.Parameter(
+                model_foundations.products[i]
+                .symmetric_contractions.contractions[j]
+                .weights_max[indices_weights_prod, :, :]
+                .clone()
             )
 
             target_weights = product.symmetric_contractions.contractions[j].weights
@@ -212,9 +212,9 @@ def load_foundations_elements(
                 "NonLinearBiasReadoutBlock",
                 "NonLinearReadoutBlock",
             ]:
-                assert hasattr(readout, "linear_1") or hasattr(
-                    readout, "linear_mid"
-                ), "Readout block must have linear_1 or linear_mid"
+                assert hasattr(readout, "linear_1") or hasattr(readout, "linear_mid"), (
+                    "Readout block must have linear_1 or linear_mid"
+                )
                 if hasattr(readout, "linear_1"):
                     shape_input_1 = (
                         model_foundations.readouts[i]
@@ -272,9 +272,7 @@ def load_foundations_elements(
                         i
                     ].linear_2.weight.view(shape_input_1, -1).repeat(
                         len(model_heads), len(model_heads)
-                    ).flatten().clone() / (
-                        ((shape_input_1) / (shape_output_1)) ** 0.5
-                    )
+                    ).flatten().clone() / (((shape_input_1) / (shape_output_1)) ** 0.5)
                     readout.linear_2.weight = torch.nn.Parameter(
                         model_readouts_one_linear_2_weight
                     )
@@ -293,6 +291,10 @@ def load_foundations_elements(
     _handled_attrs = {"interactions", "products", "readouts"}
     for attr_name, module in model.named_children():
         if attr_name in _handled_attrs:
+            continue
+        if attr_name not in model_foundations.__dict__["_modules"] and not hasattr(
+            model_foundations, attr_name
+        ):
             continue
         submodules = (
             list(zip(module, model_foundations.__dict__["_modules"][attr_name]))
@@ -321,7 +323,11 @@ def load_foundations_elements(
                         / (num_species_foundations / num_species) ** 0.5
                     )
 
-    if model_foundations.scale_shift is not None:
+    if (
+        model_foundations.scale_shift is not None
+        and hasattr(model, "scale_shift")
+        and model.scale_shift is not None
+    ):
         if use_scale:
             model.scale_shift.scale = model_foundations.scale_shift.scale.repeat(
                 len(model_heads)

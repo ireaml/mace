@@ -19,6 +19,7 @@ from mace.tools.torch_tools import get_change_of_basis, spherical_to_cartesian
 from .blocks import (
     AtomicEnergiesBlock,
     EquivariantProductBasisBlock,
+    GlobalPropertyReadoutBlock,
     InteractionBlock,
     LinearDipolePolarReadoutBlock,
     LinearDipoleReadoutBlock,
@@ -313,9 +314,7 @@ class MACE(torch.nn.Module):
         ]
         e0 = scatter_sum(
             src=node_e0, index=data["batch"], dim=0, dim_size=num_graphs
-        ).to(
-            vectors.dtype
-        )  # [n_graphs, n_heads]
+        ).to(vectors.dtype)  # [n_graphs, n_heads]
         # Embeddings
         node_feats = self.node_embedding(data["node_attrs"])
         edge_attrs = self.spherical_harmonics(vectors)
@@ -493,9 +492,7 @@ class ScaleShiftMACE(MACE):
         ]
         e0 = scatter_sum(
             src=node_e0, index=data["batch"], dim=0, dim_size=num_graphs
-        ).to(
-            vectors.dtype
-        )  # [n_graphs, num_heads]
+        ).to(vectors.dtype)  # [n_graphs, num_heads]
 
         # Embeddings
         node_feats = self.node_embedding(data["node_attrs"])
@@ -718,9 +715,9 @@ class AtomicDipolesMACE(torch.nn.Module):
 
         for i in range(num_interactions - 1):
             if i == num_interactions - 2:
-                assert (
-                    len(hidden_irreps) > 1
-                ), "To predict dipoles use at least l=1 hidden_irreps"
+                assert len(hidden_irreps) > 1, (
+                    "To predict dipoles use at least l=1 hidden_irreps"
+                )
                 hidden_irreps_out = str(
                     hidden_irreps[1]
                 )  # Select only l=1 vectors for last layer
@@ -965,9 +962,9 @@ class AtomicDielectricMACE(torch.nn.Module):
         for i in range(num_interactions - 1):
             if i == num_interactions - 2:
                 # does it always do polar and dipole together?
-                assert (
-                    len(hidden_irreps) > 1
-                ), "To predict dipoles use at least l=1 hidden_irreps"
+                assert len(hidden_irreps) > 1, (
+                    "To predict dipoles use at least l=1 hidden_irreps"
+                )
                 # hidden_irreps_out = str(
                 #     hidden_irreps[1]
                 # )  # Select only l=1 vectors for last layer
@@ -1257,9 +1254,9 @@ class EnergyDipolesMACE(torch.nn.Module):
 
         for i in range(num_interactions - 1):
             if i == num_interactions - 2:
-                assert (
-                    len(hidden_irreps) > 1
-                ), "To predict dipoles use at least l=1 hidden_irreps"
+                assert len(hidden_irreps) > 1, (
+                    "To predict dipoles use at least l=1 hidden_irreps"
+                )
                 hidden_irreps_out = str(
                     hidden_irreps[:2]
                 )  # Select scalars and l=1 vectors for last layer
@@ -1426,3 +1423,135 @@ class EnergyDipolesMACE(torch.nn.Module):
             "atomic_dipoles": atomic_dipoles,
         }
         return output
+
+
+class ScalarPropertyMACE(MACE):
+    """MACE variant that predicts a scalar global property (e.g. bandgap) instead of energy/forces.
+
+    The message-passing backbone is identical to MACE.  The per-atom energy
+    readout is replaced by a single ``GlobalPropertyReadoutBlock`` that
+    mean-pools the final node features to graph level, then applies a small
+    per-head MLP to predict a scalar.  Force computation is disabled.
+
+    Multiple heads (``heads`` argument) allow simultaneous training on
+    datasets at different levels of theory (e.g. PBE / HSE / G0W0).
+
+    Foundation model weights (backbone only) can be loaded with
+    ``load_foundations_elements``.
+    """
+
+    def __init__(
+        self,
+        MLP_irreps: o3.Irreps,
+        gate: Optional[Callable],
+        heads: Optional[List[str]] = None,
+        hidden_irreps: o3.Irreps = o3.Irreps("128x0e"),
+        num_interactions: int = 2,
+        keep_last_layer_irreps: bool = False,
+        property_key: str = "property",
+        # ScaleShiftMACE-specific args accepted but ignored (for foundation model compat)
+        atomic_inter_scale: Any = None,
+        atomic_inter_shift: Any = None,
+        **kwargs,
+    ):
+        super().__init__(
+            MLP_irreps=MLP_irreps,
+            gate=gate,
+            heads=heads,
+            hidden_irreps=hidden_irreps,
+            num_interactions=num_interactions,
+            keep_last_layer_irreps=keep_last_layer_irreps,
+            **kwargs,
+        )
+        if heads is None:
+            heads = ["Default"]
+        self.property_key = property_key
+        # Determine the irreps of the final node features (same logic as MACE.__init__)
+        if num_interactions == 1 or not keep_last_layer_irreps:
+            last_hidden_irreps = o3.Irreps(str(hidden_irreps[0]))
+        else:
+            last_hidden_irreps = hidden_irreps
+        # Replace MACE's per-atom energy readouts with a global property readout
+        self.readouts = torch.nn.ModuleList()
+        self.property_readout = GlobalPropertyReadoutBlock(
+            irreps_in=last_hidden_irreps,
+            MLP_irreps=MLP_irreps,
+            gate=gate,
+            num_heads=len(heads),
+        )
+        # Per-head output normalisation: y = std * MLP(x) + mean
+        # Defaults are identity (mean=0, std=1); set from training data via copy_()
+        self.register_buffer("property_mean", torch.zeros(len(heads)))
+        self.register_buffer("property_std", torch.ones(len(heads)))
+
+    def forward(
+        self,
+        data: Dict[str, torch.Tensor],
+        training: bool = False,
+        compute_force: bool = False,  # ignored – no force computation
+        compute_virials: bool = False,  # ignored
+        compute_stress: bool = False,  # ignored
+        compute_displacement: bool = False,  # ignored
+        compute_hessian: bool = False,  # ignored
+        compute_edge_forces: bool = False,  # ignored
+        compute_atomic_stresses: bool = False,  # ignored
+        lammps_mliap: bool = False,  # ignored
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        ctx = prepare_graph(
+            data,
+            compute_virials=False,
+            compute_stress=False,
+            compute_displacement=False,
+            lammps_mliap=False,
+        )
+        num_graphs = ctx.num_graphs
+        vectors = ctx.vectors
+        lengths = ctx.lengths
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        # Interactions
+        for i, (interaction, product) in enumerate(
+            zip(self.interactions, self.products)
+        ):
+            node_feats, sc = interaction(
+                node_attrs=data["node_attrs"],
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff,
+                first_layer=(i == 0),
+                lammps_class=ctx.interaction_kwargs.lammps_class,
+                lammps_natoms=ctx.interaction_kwargs.lammps_natoms,
+            )
+            node_feats = product(
+                node_feats=node_feats, sc=sc, node_attrs=data["node_attrs"]
+            )
+
+        # Global property readout: mean-pool then MLP per head
+        graph_heads = data["head"].to(torch.int64)  # [n_graphs]
+        prop = self.property_readout(
+            node_feats, data["batch"], num_graphs, graph_heads
+        )  # [n_graphs, num_heads]
+
+        # Select the active head's prediction for each graph
+        predicted_property = prop[
+            torch.arange(num_graphs, device=prop.device), graph_heads
+        ]  # [n_graphs]
+        predicted_property = (
+            self.property_std[graph_heads] * predicted_property
+            + self.property_mean[graph_heads]
+        )
+
+        return {
+            self.property_key: predicted_property,
+            "energy": None,
+            "forces": None,
+            "node_feats": node_feats,
+        }

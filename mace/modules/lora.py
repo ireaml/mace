@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
 from e3nn import o3
@@ -32,6 +34,8 @@ class LoRAO3Linear(nn.Module):
     with automatic caching during inference (when grad is disabled).
     """
 
+    _cached_merged_weight: Optional[torch.Tensor]
+
     def __init__(self, base_linear: o3.Linear, rank: int = 4, alpha: float = 1.0):
         super().__init__()
         self.base = base_linear
@@ -55,7 +59,7 @@ class LoRAO3Linear(nn.Module):
         self.lora_B.to(dtype=base_param.dtype, device=base_param.device)
 
         # Cache for merged weight (used during inference)
-        self._cached_merged_weight: torch.Tensor | None = None
+        self._cached_merged_weight = None
 
         # Build instruction mapping for weight composition
         self._build_instruction_mapping()
@@ -157,6 +161,8 @@ class LoRADenseLinear(nn.Module):
     with automatic caching during inference (when grad is disabled).
     """
 
+    _cached_delta: Optional[torch.Tensor]
+
     def __init__(self, base_linear: nn.Linear, rank: int = 4, alpha: float = 1.0):
         super().__init__()
         self.base = base_linear
@@ -175,7 +181,7 @@ class LoRADenseLinear(nn.Module):
         self.lora_B.to(dtype=base_param.dtype, device=base_param.device)
 
         # Cache for weight delta (used during inference)
-        self._cached_delta: torch.Tensor | None = None
+        self._cached_delta = None
 
         with torch.no_grad():
             nn.init.zeros_(self.lora_B.weight)
@@ -215,6 +221,8 @@ class LoRAFCLayer(nn.Module):
     Note: e3nn uses (in, out) weight layout, so delta = A @ B (not B @ A).
     """
 
+    _cached_delta: Optional[torch.Tensor]
+
     def __init__(self, base_layer: nn.Module, rank: int = 4, alpha: float = 1.0):
         super().__init__()
         if not hasattr(base_layer, "weight"):
@@ -234,7 +242,7 @@ class LoRAFCLayer(nn.Module):
         )
 
         # Cache for weight delta (used during inference)
-        self._cached_delta: torch.Tensor | None = None
+        self._cached_delta = None
 
         with torch.no_grad():
             nn.init.normal_(self.lora_A, mean=0.0, std=1e-3)

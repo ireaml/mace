@@ -135,7 +135,6 @@ class TrainingPlotter:
         self.plot_interaction_e = plot_interaction_e
 
     def plot(self, model_epoch: str, model: torch.nn.Module, rank: int) -> None:
-
         # All ranks process data through model_inference
         train_valid_dict = model_inference(
             self.train_valid_data,
@@ -218,7 +217,6 @@ def parse_training_results(path: str) -> List[dict]:
 def plot_epoch_dependence(
     axes: np.ndarray, data: pd.DataFrame, head: str, model_epoch: str, labels: List[str]
 ) -> None:
-
     valid_data = (
         data[data["mode"] == "eval"]
         .groupby(["mode", "epoch", "head"])
@@ -311,7 +309,6 @@ def plot_inference_from_results(
     quantities: List[str],
     plot_interaction_e: bool = False,
 ) -> None:
-
     for ax, quantity in zip(axes, quantities):
         key, label = quantity
 
@@ -471,7 +468,6 @@ def model_inference(
     device: str,
     distributed: bool = False,
 ):
-
     for param in model.parameters():
         param.requires_grad = False
 

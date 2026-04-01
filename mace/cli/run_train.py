@@ -19,6 +19,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import LBFGS
 from torch.utils.data import ConcatDataset
 from torch_ema import ExponentialMovingAverage
+import numpy as np
 
 import mace
 from mace import data, tools
@@ -198,9 +199,9 @@ def run(args) -> None:
                 )
             args.multiheads_finetuning = False
         if args.multiheads_finetuning:
-            assert (
-                args.E0s != "average"
-            ), "average atomic energies cannot be used for multiheads finetuning"
+            assert args.E0s != "average", (
+                "average atomic energies cannot be used for multiheads finetuning"
+            )
             if not args.force_mh_ft_lr:
                 logging.info(
                     "Multihead finetuning mode, setting learning rate to 0.0001 and EMA to True. To use a different learning rate, set --force_mh_ft_lr=True."
@@ -300,9 +301,9 @@ def run(args) -> None:
             ["matpes_r2scan"],
             ["omat"],
         ):
-            assert (
-                head_config.head_name == "pt_head"
-            ), "Only pt_head should use mp as train_file"
+            assert head_config.head_name == "pt_head", (
+                "Only pt_head should use mp as train_file"
+            )
             logging.info(
                 f"Using filtered Materials Project data for replay ({args.num_samples_pt}, {args.filter_type_pt}, {args.subselect_pt}). "
                 "You can also construct a different subset using `fine_tuning_select.py` script."
@@ -533,7 +534,16 @@ def run(args) -> None:
             atomic_energies_dict_padded[head_name] = energy_head_padded
         atomic_energies_dict = atomic_energies_dict_padded
 
-    if args.model == "AtomicDipolesMACE":
+    if args.model == "ScalarPropertyMACE":
+        atomic_energies = dict_to_array(atomic_energies_dict, heads)
+        dipole_only = False
+        args.compute_energy = False
+        args.compute_forces = False
+        args.compute_virials = False
+        args.compute_stress = False
+        args.compute_dipole = False
+        args.compute_polarizability = False
+    elif args.model == "AtomicDipolesMACE":
         atomic_energies = None
         dipole_only = True
         args.compute_dipole = True
@@ -754,6 +764,53 @@ def run(args) -> None:
     # Model
     model, output_args = configure_model(args, train_loader, atomic_energies, model_foundation, heads, z_table, head_configs)
     model.to(device)
+
+    if args.model == "ScalarPropertyMACE":
+        prop_means, prop_stds = [], []
+        for head_config in head_configs:
+            values = [
+                c.properties[args.property_key]
+                for c in head_config.collections.train
+                if c.properties.get(args.property_key) is not None
+            ]
+            if values:
+                mean = float(np.mean(values))
+                std = float(np.std(values))
+                prop_means.append(mean)
+                prop_stds.append(std if std > 0 else 1.0)
+            else:
+                prop_means.append(0.0)
+                prop_stds.append(1.0)
+        dtype = next(model.parameters()).dtype
+        model.property_mean.copy_(torch.tensor(prop_means, dtype=dtype, device=device))
+        model.property_std.copy_(torch.tensor(prop_stds, dtype=dtype, device=device))
+        logging.info(
+            "Property statistics per head: "
+            + ", ".join(
+                f"{hc.head_name}: mean={m:.3f} std={s:.3f}"
+                for hc, m, s in zip(head_configs, prop_means, prop_stds)
+            )
+        )
+
+    if getattr(args, "freeze_backbone", False):
+        backbone_prefixes = (
+            "node_embedding.",
+            "radial_embedding.",
+            "spherical_harmonics.",
+            "interactions.",
+            "products.",
+            "atomic_energies_fn.",
+        )
+        frozen, trainable = 0, 0
+        for name, param in model.named_parameters():
+            if name.startswith(backbone_prefixes):
+                param.requires_grad_(False)
+                frozen += param.numel()
+            else:
+                trainable += param.numel()
+        logging.info(
+            f"Backbone frozen: {frozen:,} parameters frozen, {trainable:,} trainable"
+        )
 
     if args.lora:
         lora_rank = args.lora_rank
